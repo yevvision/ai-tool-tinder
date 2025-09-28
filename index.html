@@ -29,6 +29,8 @@
     .loading{text-align:center;padding:40px;opacity:0.7}
     .empty{text-align:center;padding:60px 20px;opacity:0.7}
     .instructions{font-size:12px;opacity:0.6;text-align:center;margin-top:8px}
+    .config-hint{background:#2a2a3a;padding:12px;margin:10px;border-radius:8px;font-size:13px;max-width:500px}
+    .config-hint code{background:#1e1e28;padding:2px 4px;border-radius:4px}
   </style>
 </head>
 <body>
@@ -36,6 +38,12 @@
     🗓️ Tägliche KI-Tools – Swipe
     <div class="instructions">Right = In Notion speichern • Left = Überspringen</div>
   </header>
+  
+  <div class="config-hint">
+    <strong>🔧 Konfiguration erforderlich:</strong><br>
+    Öffne die HTML-Datei in einem Texteditor und ersetze <code>YOUR_N8N_BASE_URL</code> mit der URL deines n8n-Servers.
+  </div>
+  
   <div id="stack">
     <div class="loading">Lade Tools...</div>
   </div>
@@ -47,8 +55,10 @@
 
 <script>
 // HIER DEINE n8n WEBHOOK-URLs EINTRAGEN:
-const TOOLS_URL = "http://72.60.135.217:5678/webhook-test/tools";        
-const DECISION_URL = "http://72.60.135.217:5678/webhook-test/decision";  
+// Trage hier die Basis-URL deines n8n-Servers ein:
+const BASE_URL = "http://72.60.135.217:5678"; // Für Vercel: Die App funktioniert direkt mit diesem Server
+const TOOLS_URL = `${BASE_URL}/webhook/get-tools-webhook`;
+const DECISION_URL = `${BASE_URL}/webhook/post-decision-webhook`;
 
 let tools = [], idx = 0, startX = 0, deltaX = 0, isDragging = false;
 
@@ -187,6 +197,11 @@ function updateButtons() {
 
 async function init(){
   try {
+    // Prüfe ob die Basis-URL konfiguriert wurde
+    if (BASE_URL === "YOUR_N8N_BASE_URL") {
+      throw new Error('Bitte konfiguriere die BASE_URL in der HTML-Datei');
+    }
+    
     document.getElementById('stack').innerHTML = '<div class="loading">Lade Tools...</div>';
     
     const res = await fetch(TOOLS_URL);
@@ -228,7 +243,7 @@ async function init(){
     document.getElementById('stack').innerHTML = `
       <div class="empty">
         ❌ Fehler beim Laden der Tools<br><br>
-        <small>Überprüfe die Webhook-URLs in der Konsole</small>
+        <small>${error.message}</small>
       </div>`;
   }
 }
