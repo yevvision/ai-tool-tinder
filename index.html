@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>KI-Tools – Swipe</title>
+  <style>
+    body{margin:0;font-family:system-ui,Arial,sans-serif;background:#0b0b10;color:#eaeaea;display:flex;flex-direction:column;align-items:center;min-height:100vh}
+    header{padding:16px 12px;font-weight:700;text-align:center}
+    #stack{position:relative;width:min(520px,90vw);height:70vh;margin-top:8px}
+    .card{position:absolute;inset:0;background:#16161d;border:1px solid #2a2a34;border-radius:16px;box-shadow:0 12px 30px rgba(0,0,0,.35);padding:18px;display:flex;flex-direction:column;gap:10px;touch-action:pan-y;cursor:grab}
+    .card:active{cursor:grabbing}
+    .title{font-size:18px;font-weight:700;margin-bottom:8px}
+    .meta{font-size:12px;opacity:.75;display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+    .desc{font-size:14px;line-height:1.35;margin-bottom:12px}
+    .link{margin-top:auto;padding-top:8px}
+    .link a{color:#4a9eff;text-decoration:none;font-size:13px}
+    .btnrow{display:flex;gap:12px;justify-content:center;margin:18px 0;z-index:1000}
+    button{border:none;padding:12px 20px;border-radius:12px;font-weight:700;background:#272734;color:#eaeaea;cursor:pointer;transition:background-color 0.2s}
+    button:hover{background:#353545}
+    button.yes{background:#136e37} 
+    button.yes:hover{background:#1a8a47}
+    button.no{background:#7b1e1e}
+    button.no:hover{background:#9a2525}
+    .badge{font-size:11px;padding:3px 8px;border:1px solid #3a3a48;border-radius:999px;white-space:nowrap}
+    .stars{letter-spacing:1px;color:#ffd700}
+    .toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:#1e1e28;border:1px solid #363648;padding:10px 14px;border-radius:10px;font-size:13px;opacity:0;transition:.25s;z-index:2000}
+    .show{opacity:1}
+    .loading{text-align:center;padding:40px;opacity:0.7}
+    .empty{text-align:center;padding:60px 20px;opacity:0.7}
+    .instructions{font-size:12px;opacity:0.6;text-align:center;margin-top:8px}
+  </style>
+</head>
+<body>
+  <header>
+    🗓️ Tägliche KI-Tools – Swipe
+    <div class="instructions">Right = In Notion speichern • Left = Überspringen</div>
+  </header>
+  <div id="stack">
+    <div class="loading">Lade Tools...</div>
+  </div>
+  <div class="btnrow">
+    <button class="no" id="skipBtn">⟵ Skip</button>
+    <button class="yes" id="saveBtn">Add to Notion ⟶</button>
+  </div>
+  <div class="toast" id="toast">Gespeichert</div>
+
+<script>
+// HIER DEINE n8n WEBHOOK-URLs EINTRAGEN:
+const TOOLS_URL = "http://72.60.135.217:5678/webhook-test/tools";        
+const DECISION_URL = "http://72.60.135.217:5678/webhook-test/decision";  
+
+let tools = [], idx = 0, startX = 0, deltaX = 0, isDragging = false;
+
+function starBar(n){ return "★★★★★".slice(0,n) + "☆☆☆☆☆".slice(n); }
+
+function showToast(msg){
+  const t = document.getElementById('toast'); 
+  t.textContent = msg; 
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 1500);
+}
+
+function renderCard(tool, index){
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.style.zIndex = tools.length - index; // Oberste Karte hat höchsten z-index
+  el.innerHTML = `
+    <div class="title">${tool.name}</div>
+    <div class="meta">
+      <span class="badge">${tool.category}</span>
+      <span class="badge">${tool.cost || "Unklar"}</span>
+      <span class="stars">${starBar(tool.stars || 0)}</span>
+    </div>
+    <div class="desc">${tool.short}</div>
+    <div class="link"><a href="${tool.link}" target="_blank" rel="noopener">🔗 Link öffnen</a></div>
+  `;
+  
+  // Touch Events für Mobile
+  el.addEventListener('touchstart', handleStart, {passive: false});
+  el.addEventListener('touchmove', handleMove, {passive: false});
+  el.addEventListener('touchend', handleEnd, {passive: false});
+  
+  // Mouse Events für Desktop
+  el.addEventListener('mousedown', handleStart);
+  el.addEventListener('mousemove', handleMove);
+  el.addEventListener('mouseup', handleEnd);
+  el.addEventListener('mouseleave', handleEnd);
+  
+  return el;
+}
+
+function handleStart(e) {
+  e.preventDefault();
+  isDragging = true;
+  startX = e.touches ? e.touches[0].clientX : e.clientX;
+  deltaX = 0;
+}
+
+function handleMove(e) {
+  if (!isDragging) return;
+  e.preventDefault();
+  
+  const currentX = e.touches ? e.touches[0].clientX : e.clientX;
+  deltaX = currentX - startX;
+  
+  const el = e.currentTarget;
+  el.style.transform = `translateX(${deltaX}px) rotate(${deltaX/20}deg)`;
+  el.style.opacity = String(1 - Math.min(Math.abs(deltaX)/300, .6));
+  
+  // Farbhintergrund für Feedback
+  if (deltaX > 50) el.style.background = '#1a4d2e';
+  else if (deltaX < -50) el.style.background = '#4d1a1a';
+  else el.style.background = '#16161d';
+}
+
+function handleEnd(e) {
+  if (!isDragging) return;
+  isDragging = false;
+  
+  const el = e.currentTarget;
+  
+  if (deltaX > 120) {
+    decide('right', tools[idx], el);
+  } else if (deltaX < -120) {
+    decide('left', tools[idx], el);
+  } else {
+    // Zurück zur Mitte
+    el.style.transform = '';
+    el.style.opacity = '1';
+    el.style.background = '#16161d';
+  }
+  deltaX = 0;
+}
+
+async function decide(direction, tool, el){
+  if (!tool) return;
+  
+  try {
+    const response = await fetch(DECISION_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ 
+        id: tool.id, 
+        decision: direction, 
+        payload: tool 
+      })
+    });
+    
+    if (!response.ok) throw new Error('Network error');
+    
+    // Animation
+    el.style.transition = 'transform .3s ease, opacity .3s ease';
+    el.style.transform = `translateX(${direction === 'right' ? 400 : -400}px) rotate(${direction === 'right' ? 20 : -20}deg)`;
+    el.style.opacity = '0';
+    
+    setTimeout(() => el.remove(), 300);
+    
+    showToast(direction === 'right' ? '✅ In Notion gespeichert!' : '⏭️ Übersprungen');
+    nextCard();
+    
+  } catch(e) { 
+    showToast('❌ Fehler beim Senden'); 
+    console.error('Decision error:', e); 
+    el.style.transform = '';
+    el.style.opacity = '1';
+    el.style.background = '#16161d';
+  }
+}
+
+function nextCard(){
+  idx++;
+  updateButtons();
+  
+  if (idx >= tools.length) {
+    document.getElementById('stack').innerHTML = '<div class="empty">🎉 Alle Tools durchgesehen!<br><br>Komm morgen wieder für neue Tools.</div>';
+    document.getElementById('skipBtn').disabled = true;
+    document.getElementById('saveBtn').disabled = true;
+  }
+}
+
+function updateButtons() {
+  const hasCards = idx < tools.length;
+  document.getElementById('skipBtn').disabled = !hasCards;
+  document.getElementById('saveBtn').disabled = !hasCards;
+}
+
+async function init(){
+  try {
+    document.getElementById('stack').innerHTML = '<div class="loading">Lade Tools...</div>';
+    
+    const res = await fetch(TOOLS_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    
+    tools = await res.json();
+    
+    if (!Array.isArray(tools) || tools.length === 0) {
+      throw new Error('Keine Tools gefunden');
+    }
+    
+    const stack = document.getElementById('stack');
+    stack.innerHTML = '';
+    
+    // Karten in umgekehrter Reihenfolge rendern (letzte zuerst)
+    [...tools].reverse().forEach((tool, i) => {
+      stack.appendChild(renderCard(tool, tools.length - 1 - i));
+    });
+    
+    updateButtons();
+    
+    // Button Events
+    document.getElementById('saveBtn').onclick = () => {
+      const topCard = stack.lastElementChild;
+      if (topCard && !topCard.classList.contains('empty') && !topCard.classList.contains('loading')) {
+        decide('right', tools[idx], topCard);
+      }
+    };
+    
+    document.getElementById('skipBtn').onclick = () => {
+      const topCard = stack.lastElementChild;
+      if (topCard && !topCard.classList.contains('empty') && !topCard.classList.contains('loading')) {
+        decide('left', tools[idx], topCard);
+      }
+    };
+    
+  } catch(error) {
+    console.error('Init error:', error);
+    document.getElementById('stack').innerHTML = `
+      <div class="empty">
+        ❌ Fehler beim Laden der Tools<br><br>
+        <small>Überprüfe die Webhook-URLs in der Konsole</small>
+      </div>`;
+  }
+}
+
+// Initialisierung starten
+init();
+</script>
+</body>
+</html>
