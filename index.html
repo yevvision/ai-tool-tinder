@@ -1,255 +1,329 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>KI-Tools – Swipe</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KI-Tools Review - Swipe App</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body{margin:0;font-family:system-ui,Arial,sans-serif;background:#0b0b10;color:#eaeaea;display:flex;flex-direction:column;align-items:center;min-height:100vh}
-    header{padding:16px 12px;font-weight:700;text-align:center}
-    #stack{position:relative;width:min(520px,90vw);height:70vh;margin-top:8px}
-    .card{position:absolute;inset:0;background:#16161d;border:1px solid #2a2a34;border-radius:16px;box-shadow:0 12px 30px rgba(0,0,0,.35);padding:18px;display:flex;flex-direction:column;gap:10px;touch-action:pan-y;cursor:grab}
-    .card:active{cursor:grabbing}
-    .title{font-size:18px;font-weight:700;margin-bottom:8px}
-    .meta{font-size:12px;opacity:.75;display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
-    .desc{font-size:14px;line-height:1.35;margin-bottom:12px}
-    .link{margin-top:auto;padding-top:8px}
-    .link a{color:#4a9eff;text-decoration:none;font-size:13px}
-    .btnrow{display:flex;gap:12px;justify-content:center;margin:18px 0;z-index:1000}
-    button{border:none;padding:12px 20px;border-radius:12px;font-weight:700;background:#272734;color:#eaeaea;cursor:pointer;transition:background-color 0.2s}
-    button:hover{background:#353545}
-    button.yes{background:#136e37} 
-    button.yes:hover{background:#1a8a47}
-    button.no{background:#7b1e1e}
-    button.no:hover{background:#9a2525}
-    .badge{font-size:11px;padding:3px 8px;border:1px solid #3a3a48;border-radius:999px;white-space:nowrap}
-    .stars{letter-spacing:1px;color:#ffd700}
-    .toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:#1e1e28;border:1px solid #363648;padding:10px 14px;border-radius:10px;font-size:13px;opacity:0;transition:.25s;z-index:2000}
-    .show{opacity:1}
-    .loading{text-align:center;padding:40px;opacity:0.7}
-    .empty{text-align:center;padding:60px 20px;opacity:0.7}
-    .instructions{font-size:12px;opacity:0.6;text-align:center;margin-top:8px}
-    .config-hint{background:#2a2a3a;padding:12px;margin:10px;border-radius:8px;font-size:13px;max-width:500px}
-    .config-hint code{background:#1e1e28;padding:2px 4px;border-radius:4px}
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .card-swipe { transition: transform 0.3s ease, opacity 0.3s ease; }
+    .card-swipe.swiping { transition: none; }
+    .overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 4rem; font-weight: bold; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+    .overlay.show { opacity: 1; }
   </style>
 </head>
 <body>
-  <header>
-    🗓️ Tägliche KI-Tools – Swipe
-    <div class="instructions">Right = In Notion speichern • Left = Überspringen</div>
-  </header>
-  
-  <div class="config-hint">
-    <strong>🔧 Konfiguration erforderlich:</strong><br>
-    Öffne die HTML-Datei in einem Texteditor und ersetze <code>YOUR_N8N_BASE_URL</code> mit der URL deines n8n-Servers.
-  </div>
-  
-  <div id="stack">
-    <div class="loading">Lade Tools...</div>
-  </div>
-  <div class="btnrow">
-    <button class="no" id="skipBtn">⟵ Skip</button>
-    <button class="yes" id="saveBtn">Add to Notion ⟶</button>
-  </div>
-  <div class="toast" id="toast">Gespeichert</div>
+  <div id="root"></div>
 
-<script>
-// HIER DEINE n8n WEBHOOK-URLs EINTRAGEN:
-// Trage hier die Basis-URL deines n8n-Servers ein:
-const BASE_URL = "http://72.60.135.217:5678"; // Für Vercel: Die App funktioniert direkt mit diesem Server
-const TOOLS_URL = `${BASE_URL}/webhook/get-tools-webhook`;
-const DECISION_URL = `${BASE_URL}/webhook/post-decision-webhook`;
+  <script type="text/babel" data-type="module">
+    const { useState, useEffect, useRef } = React;
 
-let tools = [], idx = 0, startX = 0, deltaX = 0, isDragging = false;
-
-function starBar(n){ return "★★★★★".slice(0,n) + "☆☆☆☆☆".slice(n); }
-
-function showToast(msg){
-  const t = document.getElementById('toast'); 
-  t.textContent = msg; 
-  t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), 1500);
-}
-
-function renderCard(tool, index){
-  const el = document.createElement('div');
-  el.className = 'card';
-  el.style.zIndex = tools.length - index; // Oberste Karte hat höchsten z-index
-  el.innerHTML = `
-    <div class="title">${tool.name}</div>
-    <div class="meta">
-      <span class="badge">${tool.category}</span>
-      <span class="badge">${tool.cost || "Unklar"}</span>
-      <span class="stars">${starBar(tool.stars || 0)}</span>
-    </div>
-    <div class="desc">${tool.short}</div>
-    <div class="link"><a href="${tool.link}" target="_blank" rel="noopener">🔗 Link öffnen</a></div>
-  `;
-  
-  // Touch Events für Mobile
-  el.addEventListener('touchstart', handleStart, {passive: false});
-  el.addEventListener('touchmove', handleMove, {passive: false});
-  el.addEventListener('touchend', handleEnd, {passive: false});
-  
-  // Mouse Events für Desktop
-  el.addEventListener('mousedown', handleStart);
-  el.addEventListener('mousemove', handleMove);
-  el.addEventListener('mouseup', handleEnd);
-  el.addEventListener('mouseleave', handleEnd);
-  
-  return el;
-}
-
-function handleStart(e) {
-  e.preventDefault();
-  isDragging = true;
-  startX = e.touches ? e.touches[0].clientX : e.clientX;
-  deltaX = 0;
-}
-
-function handleMove(e) {
-  if (!isDragging) return;
-  e.preventDefault();
-  
-  const currentX = e.touches ? e.touches[0].clientX : e.clientX;
-  deltaX = currentX - startX;
-  
-  const el = e.currentTarget;
-  el.style.transform = `translateX(${deltaX}px) rotate(${deltaX/20}deg)`;
-  el.style.opacity = String(1 - Math.min(Math.abs(deltaX)/300, .6));
-  
-  // Farbhintergrund für Feedback
-  if (deltaX > 50) el.style.background = '#1a4d2e';
-  else if (deltaX < -50) el.style.background = '#4d1a1a';
-  else el.style.background = '#16161d';
-}
-
-function handleEnd(e) {
-  if (!isDragging) return;
-  isDragging = false;
-  
-  const el = e.currentTarget;
-  
-  if (deltaX > 120) {
-    decide('right', tools[idx], el);
-  } else if (deltaX < -120) {
-    decide('left', tools[idx], el);
-  } else {
-    // Zurück zur Mitte
-    el.style.transform = '';
-    el.style.opacity = '1';
-    el.style.background = '#16161d';
-  }
-  deltaX = 0;
-}
-
-async function decide(direction, tool, el){
-  if (!tool) return;
-  
-  try {
-    const response = await fetch(DECISION_URL, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ 
-        id: tool.id, 
-        decision: direction, 
-        payload: tool 
-      })
-    });
-    
-    if (!response.ok) throw new Error('Network error');
-    
-    // Animation
-    el.style.transition = 'transform .3s ease, opacity .3s ease';
-    el.style.transform = `translateX(${direction === 'right' ? 400 : -400}px) rotate(${direction === 'right' ? 20 : -20}deg)`;
-    el.style.opacity = '0';
-    
-    setTimeout(() => el.remove(), 300);
-    
-    showToast(direction === 'right' ? '✅ In Notion gespeichert!' : '⏭️ Übersprungen');
-    nextCard();
-    
-  } catch(e) { 
-    showToast('❌ Fehler beim Senden'); 
-    console.error('Decision error:', e); 
-    el.style.transform = '';
-    el.style.opacity = '1';
-    el.style.background = '#16161d';
-  }
-}
-
-function nextCard(){
-  idx++;
-  updateButtons();
-  
-  if (idx >= tools.length) {
-    document.getElementById('stack').innerHTML = '<div class="empty">🎉 Alle Tools durchgesehen!<br><br>Komm morgen wieder für neue Tools.</div>';
-    document.getElementById('skipBtn').disabled = true;
-    document.getElementById('saveBtn').disabled = true;
-  }
-}
-
-function updateButtons() {
-  const hasCards = idx < tools.length;
-  document.getElementById('skipBtn').disabled = !hasCards;
-  document.getElementById('saveBtn').disabled = !hasCards;
-}
-
-async function init(){
-  try {
-    // Prüfe ob die Basis-URL konfiguriert wurde
-    if (BASE_URL === "YOUR_N8N_BASE_URL") {
-      throw new Error('Bitte konfiguriere die BASE_URL in der HTML-Datei');
-    }
-    
-    document.getElementById('stack').innerHTML = '<div class="loading">Lade Tools...</div>';
-    
-    const res = await fetch(TOOLS_URL);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    
-    tools = await res.json();
-    
-    if (!Array.isArray(tools) || tools.length === 0) {
-      throw new Error('Keine Tools gefunden');
-    }
-    
-    const stack = document.getElementById('stack');
-    stack.innerHTML = '';
-    
-    // Karten in umgekehrter Reihenfolge rendern (letzte zuerst)
-    [...tools].reverse().forEach((tool, i) => {
-      stack.appendChild(renderCard(tool, tools.length - 1 - i));
-    });
-    
-    updateButtons();
-    
-    // Button Events
-    document.getElementById('saveBtn').onclick = () => {
-      const topCard = stack.lastElementChild;
-      if (topCard && !topCard.classList.contains('empty') && !topCard.classList.contains('loading')) {
-        decide('right', tools[idx], topCard);
-      }
+    // ==========================================
+    // 🔧 HIER DEINE EINSTELLUNGEN EINTRAGEN:
+    // ==========================================
+    const CONFIG = {
+      ENDPOINT_LIST: 'http://72.60.135.217:5678/webhook/tools-inbox',
+      ENDPOINT_DECIDE: 'http://72.60.135.217:5678/webhook/tools-decision',
+      TOKEN: 'eugen33!'
     };
-    
-    document.getElementById('skipBtn').onclick = () => {
-      const topCard = stack.lastElementChild;
-      if (topCard && !topCard.classList.contains('empty') && !topCard.classList.contains('loading')) {
-        decide('left', tools[idx], topCard);
-      }
-    };
-    
-  } catch(error) {
-    console.error('Init error:', error);
-    document.getElementById('stack').innerHTML = `
-      <div class="empty">
-        ❌ Fehler beim Laden der Tools<br><br>
-        <small>${error.message}</small>
-      </div>`;
-  }
-}
+    // ==========================================
 
-// Initialisierung starten
-init();
-</script>
+    function Card({ item, onAction }) {
+      const cardRef = useRef(null);
+      const [isDragging, setIsDragging] = useState(false);
+      const [startX, setStartX] = useState(0);
+      const [offsetX, setOffsetX] = useState(0);
+      const [overlayType, setOverlayType] = useState(null);
+
+      const handleStart = (clientX) => {
+        setIsDragging(true);
+        setStartX(clientX);
+      };
+
+      const handleMove = (clientX) => {
+        if (!isDragging) return;
+        const diff = clientX - startX;
+        setOffsetX(diff);
+        
+        if (diff > 50) setOverlayType('approve');
+        else if (diff < -50) setOverlayType('reject');
+        else setOverlayType(null);
+      };
+
+      const handleEnd = () => {
+        if (!isDragging) return;
+        setIsDragging(false);
+
+        if (offsetX > 100) {
+          onAction('right');
+        } else if (offsetX < -100) {
+          onAction('left');
+        }
+        
+        setOffsetX(0);
+        setOverlayType(null);
+      };
+
+      const rotation = offsetX / 20;
+      const opacity = 1 - Math.abs(offsetX) / 300;
+
+      return (
+        <div
+          ref={cardRef}
+          className={`card-swipe ${isDragging ? 'swiping' : ''}`}
+          style={{
+            transform: `translateX(${offsetX}px) rotate(${rotation}deg)`,
+            opacity: opacity,
+            cursor: isDragging ? 'grabbing' : 'grab'
+          }}
+          onMouseDown={(e) => handleStart(e.clientX)}
+          onMouseMove={(e) => handleMove(e.clientX)}
+          onMouseUp={handleEnd}
+          onMouseLeave={handleEnd}
+          onTouchStart={(e) => handleStart(e.touches[0].clientX)}
+          onTouchMove={(e) => handleMove(e.touches[0].clientX)}
+          onTouchEnd={handleEnd}
+        >
+          <div className="bg-white rounded-3xl shadow-2xl p-8 relative select-none max-w-md mx-auto">
+            {/* Overlays */}
+            <div className={`overlay ${overlayType === 'approve' ? 'show' : ''}`} style={{color: '#22c55e'}}>✓</div>
+            <div className={`overlay ${overlayType === 'reject' ? 'show' : ''}`} style={{color: '#ef4444'}}>✗</div>
+
+            {/* Content */}
+            <div className="space-y-4">
+              <h2 className="text-3xl font-bold text-gray-900">{item.name}</h2>
+              
+              <div className="flex gap-2 flex-wrap">
+                <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+                  {item.kategorie}
+                </span>
+                <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                  {item.kosten}
+                </span>
+                {item.relevanz && (
+                  <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">
+                    ⭐ {item.relevanz}
+                  </span>
+                )}
+              </div>
+
+              <p className="text-gray-700 text-lg leading-relaxed min-h-[80px]">
+                {item.kurzbeschreibung || 'Keine Beschreibung verfügbar'}
+              </p>
+
+              <a 
+                href={item.link} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium"
+                onClick={(e) => e.stopPropagation()}
+              >
+                🔗 Website öffnen
+              </a>
+
+              {item.datum && (
+                <div className="text-sm text-gray-500 pt-2 border-t">
+                  📅 {new Date(item.datum).toLocaleDateString('de-DE')}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [items, setItems] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const [toast, setToast] = useState('');
+
+      const load = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const res = await fetch(CONFIG.ENDPOINT_LIST);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          setItems(Array.isArray(data) ? data : []);
+        } catch (e) {
+          setError(e.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => { load(); }, []);
+
+      const shift = () => setItems(prev => prev.slice(1));
+
+      const act = async (direction, item) => {
+        setBusy(true);
+        try {
+          const res = await fetch(CONFIG.ENDPOINT_DECIDE, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              id: item.id, 
+              action: direction === 'right' ? 'approve' : 'reject', 
+              token: CONFIG.TOKEN 
+            })
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const msg = direction === 'right' ? '✅ Übernommen' : '❌ Abgelehnt';
+          setToast(`${item.name} – ${msg}`);
+          setTimeout(() => setToast(''), 2000);
+        } catch (e) {
+          setToast(`⚠️ Fehler: ${e.message}`);
+          setItems(prev => [item, ...prev]);
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      const onAction = (direction) => {
+        const current = items[0];
+        shift();
+        act(direction, current);
+      };
+
+      useEffect(() => {
+        const h = (e) => {
+          if (!items[0]) return;
+          if (e.key === 'ArrowLeft') onAction('left');
+          if (e.key === 'ArrowRight') onAction('right');
+          if (e.key === ' ') {
+            e.preventDefault();
+            window.open(items[0].link, '_blank');
+          }
+        };
+        window.addEventListener('keydown', h);
+        return () => window.removeEventListener('keydown', h);
+      }, [items]);
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl space-y-6">
+            {/* Header */}
+            <header className="flex items-center justify-between px-4">
+              <h1 className="text-3xl font-bold text-gray-900">🤖 KI-Tools Review</h1>
+              <div className="flex items-center gap-3">
+                <div className="text-sm text-gray-600">
+                  {busy ? '⏳ Sync...' : items.length > 0 ? `${items.length} Tools` : 'Bereit'}
+                </div>
+                <button 
+                  onClick={load}
+                  className="px-3 py-1 rounded-lg bg-gray-200 hover:bg-gray-300 text-sm"
+                >
+                  🔄
+                </button>
+              </div>
+            </header>
+
+            {/* Loading & Error */}
+            {loading && (
+              <div className="text-center text-gray-600 py-12">
+                <div className="text-4xl mb-2">⏳</div>
+                Lade Tools...
+              </div>
+            )}
+            
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
+                <div className="text-red-600 font-medium">⚠️ Fehler beim Laden</div>
+                <div className="text-red-500 text-sm mt-2">{String(error)}</div>
+                <button 
+                  onClick={load}
+                  className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                >
+                  Erneut versuchen
+                </button>
+              </div>
+            )}
+
+            {/* Empty State */}
+            {!loading && items.length === 0 && !error && (
+              <div className="bg-white rounded-2xl shadow-lg p-8 text-center space-y-4">
+                <div className="text-6xl">🎉</div>
+                <div className="text-xl font-medium text-gray-900">Keine offenen Tools!</div>
+                <div className="text-gray-600">Alle Tools wurden bereits reviewt.</div>
+                <button 
+                  onClick={load}
+                  className="px-6 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800"
+                >
+                  Neu laden
+                </button>
+              </div>
+            )}
+
+            {/* Cards Stack */}
+            {items.length > 0 && (
+              <div className="relative" style={{ minHeight: '500px' }}>
+                {items.slice(0, 3).map((item, idx) => (
+                  <div 
+                    key={item.id} 
+                    className="absolute inset-0"
+                    style={{ 
+                      zIndex: 100 - idx,
+                      transform: idx === 0 ? 'none' : idx === 1 ? 'scale(0.95) translateY(10px)' : 'scale(0.9) translateY(20px)',
+                      opacity: idx === 0 ? 1 : 0.7,
+                      transition: 'transform 0.3s ease, opacity 0.3s ease'
+                    }}
+                  >
+                    {idx === 0 ? (
+                      <Card item={item} onAction={onAction} />
+                    ) : (
+                      <div className="bg-white rounded-3xl shadow-xl p-8 max-w-md mx-auto">
+                        <div className="text-gray-400 text-center text-lg">{item.name}</div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Controls */}
+            {items.length > 0 && (
+              <div className="flex items-center justify-between px-4">
+                <div className="text-sm text-gray-500">
+                  💡 Tipp: Wischen, Pfeiltasten (←/→) oder Leertaste für Link
+                </div>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => onAction('left')}
+                    className="w-14 h-14 rounded-full bg-red-100 hover:bg-red-200 flex items-center justify-center text-2xl shadow-lg"
+                    disabled={busy}
+                  >
+                    ❌
+                  </button>
+                  <button 
+                    onClick={() => onAction('right')}
+                    className="w-14 h-14 rounded-full bg-green-500 hover:bg-green-600 flex items-center justify-center text-2xl shadow-lg"
+                    disabled={busy}
+                  >
+                    ✅
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Toast */}
+            {toast && (
+              <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-2xl z-50 animate-bounce">
+                {toast}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </body>
 </html>
